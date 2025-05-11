@@ -1,0 +1,93 @@
+teraz łączymy te kody i tak najpierw pobieramy wszystkie linki pozniej przechodzimy przez wszystkie linki i pobieramy informacje z tamtąd i zapisujemy je do csv w takich kolumnach team gospodarzy team gosci  posiadanie pilki gospodarze  i gosci i xG gospodarzy i gosci
+
+import requests
+from bs4 import BeautifulSoup
+
+# URL strony
+url = "https://fbref.com/en/comps/12/2023-2024/schedule/2023-2024-La-Liga-Scores-and-Fixtures"
+
+# Wysyłanie zapytania HTTP
+response = requests.get(url)
+
+# Parsowanie HTML
+soup = BeautifulSoup(response.text, "html.parser")
+
+# Znajdowanie wszystkich linków do raportów meczowych
+match_reports = soup.select('td[data-stat="match_report"] a')
+
+# Tworzenie pełnych linków
+base_url = "https://fbref.com"
+links = [base_url + link['href'] for link in match_reports]
+
+# Wyświetlenie wyników
+for link in links:
+    print(link)
+
+from bs4 import BeautifulSoup, Comment  # Dodaj import Comment
+import requests
+import pandas as pd
+
+# 1. Pobierz stronę
+url = "https://fbref.com/en/matches/c31f0a31/Athletic-Club-Real-Madrid-August-12-2023-La-Liga"
+resp = requests.get(url)
+resp.raise_for_status()
+
+# 2. Odkomentowanie tabel
+html = resp.text
+soup = BeautifulSoup(html, "lxml")
+
+# Wydobycie komentarzy z tabelami
+for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+    if "<table" in comment:
+        html += comment
+
+# 3. Wczytanie tabel
+tables = pd.read_html(html)
+
+# 4. Znajdź tabelę ze statystykami drużynowymi
+team_stats = None
+for tbl in tables:
+    print(tbl.head())  # Debugowanie: Zobacz, jakie dane zawiera tabela
+    if any("Possession" in str(col) for col in tbl.columns):
+        team_stats = tbl
+        break
+
+if team_stats is None:
+    raise ValueError("Nie znaleziono tabeli statystyk drużynowych.")
+
+# Debugowanie: Wyświetl strukturę tabeli
+print("\nKolumny tabeli statystyk drużynowych:")
+print(team_stats.columns)
+
+# 5. Oczyszczanie kolumn i danych
+team_stats.columns = [tuple(map(str.strip, col)) for col in team_stats.columns]
+
+# Zamapuj kluczowe statystyki
+stats_mapping = {
+    "Possession": "Possession",
+    "Shots": "Shots",  # Dopasowanie do właściwego nagłówka
+    "xG": "xG"
+}
+
+def get_stat(stat_name):
+    """Zwraca (home, away) dla stat_name."""
+    col_names = [col for col in team_stats.columns if stat_name in col[1]]
+    if not col_names or len(col_names) < 2:
+        print(f"Nie znaleziono statystyki '{stat_name}'. Dostępne kolumny: {team_stats.columns}")
+        return None, None
+    return team_stats[col_names[0]].iloc[0], team_stats[col_names[1]].iloc[0]
+
+# Pobierz statystyki
+poss_home, poss_away = get_stat("Possession")
+
+
+# 6. Wyświetl wyniki
+print(f"Posiadanie: {poss_home} vs {poss_away}")
+soup = BeautifulSoup(html, "lxml")
+
+# Pobranie xG
+xg_home = soup.select_one(".score_xg").text.strip()
+xg_away = soup.select(".score_xg")[1].text.strip()  # Drugi element dla drużyny przeciwnej
+
+print(f"xG dla gospodarzy: {xg_home}")
+print(f"xG dla gości: {xg_away}") 
