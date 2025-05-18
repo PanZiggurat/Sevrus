@@ -134,9 +134,53 @@ plt.ylabel("Pozycja-wartość gościa")
 plt.savefig("heatmapa_win_gosc.png", dpi=150, bbox_inches='tight')
 plt.show()
 
+home = df[['home_club_position', 'squad_value_home', 'home_result']].copy()
+home['side'] = 'home'
+home.columns = ['position', 'squad_value', 'result', 'side']
+
+away = df[['away_club_position', 'squad_value_away', 'away_result']].copy()
+away['side'] = 'away'
+away.columns = ['position', 'squad_value', 'result', 'side']
+
+long_df = pd.concat([home, away], ignore_index=True)
+
+# Klasyfikacja pozycji na kategorie (piątki/kroki po 5)
+long_df['pos_bin'] = pd.cut(long_df['position'], [0,5,10,15,20], labels=['1-5','6-10','11-15','16-20'])
+long_df['value_bin'] = pd.qcut(long_df['squad_value'], 4, labels=['najsłabszy', 'średni-', 'średni+', 'najbogatszy'])
+
+# Oznaczamy kolumnę wygranej (0/1)
+long_df['is_win'] = (long_df['result'] == 'win').astype(int)
 
 
+# --- WYKRES SŁUPKOWY po pozycji ---
+pos_win = long_df.groupby('pos_bin')['is_win'].mean() * 100
+pos_win.plot(kind='bar')
+plt.ylabel('Procent wygranych [%]')
+plt.title('Procent wygranych wg pozycji w tabeli')
+plt.show()
 
+# --- WYKRES SŁUPKOWY po wartości składu ---
+val_win = long_df.groupby('value_bin')['is_win'].mean() * 100
+val_win.plot(kind='bar')
+plt.ylabel('Procent wygranych [%]')
+plt.title('Procent wygranych wg kwartylu wartości składu')
+plt.show()
+
+# --- Wykres boxplot pozycji a wygrana ---
+sns.boxplot(x='result', y='position', data=long_df)
+plt.title('Pozycja w tabeli a wynik meczu (ogółem)')
+plt.show()
+
+# --- Wykres boxplot wartości składu a wygrana ---
+sns.boxplot(x='result', y='squad_value', data=long_df)
+plt.title('Wartość składu a wynik meczu (ogółem)')
+plt.show()
+
+# --- Wykres udziału wygranych dla “najsłabszy"/"najbogatszy” po stronie gry (opcjonalnie) ---
+sns.barplot(x='value_bin', y='is_win', data=long_df, hue='side')
+plt.ylabel('Procent wygranych')
+plt.title('Wygrane % wg wartości składu i miejsca gry')
+plt.show()
 
 
 
@@ -268,62 +312,3 @@ plt.show()
 
 
 
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-
-from sklearn.preprocessing import StandardScaler
-
-X = df[["pos_diff", "value_diff"]]
-y = df["no_lose"]
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-model = LogisticRegression()
-model.fit(X_train, y_train)
-
-print("Współczynniki regresji:", model.coef_)
-print("Intercept:", model.intercept_)
-
-# Estymowane szanse na brak porażki
-proba = model.predict_proba(X_test)[:,1]
-
-df_test = X_test.copy()
-df_test['y_true'] = y_test
-df_test['prob_brak_porazki'] = proba
-
-print(df_test.head())
-
-print(df[['pos_diff','value_diff']].corr())
-sns.scatterplot(x='pos_diff', y='value_diff', data=df, alpha=0.3)
-plt.title("Korelacja różnicy pozycji i różnicy wartości składu")
-plt.show()
-
-from sklearn.linear_model import LinearRegression
-
-X = df[["pos_diff", "value_diff"]]
-y = df["home_goals"]
-
-lr = LinearRegression().fit(X, y)
-print("Wpływ na liczbę goli:", lr.coef_)
-
-
-
-df_reg = df[~df['home_form'].isin(['brak formy'])].copy()  # usuń 'brak formy'
-features = ['pos_diff','value_diff','home_form_num']
-X = df_reg[features]
-y = df_reg["no_lose"]
-
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.3, random_state=42)
-model = LogisticRegression()
-model.fit(X_train, y_train)
-
-print("Współczynniki regresji:", model.coef_)
-print("Intercept:", model.intercept_)
-
-# Przykład: Dla wartości standardowych
-import numpy as np
-# Przykład: Gospodarz z TOP 5 (pos_diff=15), value_diff = 300 mln, forma: bardzo dobra (2)
-input_std = scaler.transform([[15, 3e8, 2]])
-print("Szansa brak porażki (przykład):", model.predict_proba(input_std)[0,1])
