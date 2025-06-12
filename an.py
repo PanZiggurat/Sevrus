@@ -19,16 +19,19 @@ df["value_diff"] = df["squad_value_home"] - df["squad_value_away"]
 df['pos_bin'] = pd.cut(df['home_club_position'], [0,5,10,15,20], labels=['1-5','6-10','11-15','16-20'])
 
 df['value_ratio'] = df['squad_value_home'] / df['squad_value_away']
-df['value_ratio_bin'] = pd.cut(df['value_ratio'], [0,0.8,1.2,2,10], labels=['Zdecydowanie słabszy','Podobny','Mocniejszy do 2x','>2x mocniejszy'])
+df['value_ratio_bin'] = pd.cut(df['value_ratio'], [0,0.8,1.2,2,10], labels=['słabszy','Podobny',' <2x','>2x mocniejszy'])
 df['value_home_bin'] = pd.qcut(df['squad_value_home'], 4, labels=['najsłabszy', 'średni-', 'średni+', 'najbogatszy'])
 df_forma = df[~df['home_form'].isin(['brak formy'])]
 
 
 wyniki_gosp = df['home_result'].value_counts(normalize=True) * 100
-wyniki_gosp.plot(kind='bar')
-plt.ylabel('Udział [%]')
+
+# WYKRES KOŁOWY
+plt.figure(figsize=(6, 6))
+wyniki_gosp.plot(kind='pie', autopct='%1.1f%%', startangle=90, counterclock=False)
+plt.ylabel('')  # usuwa etykietę osi Y
 plt.title('Procent wyników gospodarza (ogółem)')
-plt.savefig("procenty_wynik_gospodarz.png", dpi=150, bbox_inches='tight')
+plt.savefig("procenty_wynik_gospodarz_pie.png", dpi=150, bbox_inches='tight')
 plt.show()
 
 sns.boxplot(x="home_result", y="home_club_position", data=df)
@@ -152,17 +155,13 @@ long_df['value_bin'] = pd.qcut(long_df['squad_value'], 4, labels=['najsłabszy',
 long_df['is_win'] = (long_df['result'] == 'win').astype(int)
 
 
-# --- WYKRES SŁUPKOWY po pozycji ---
 pos_win = long_df.groupby('pos_bin')['is_win'].mean() * 100
-pos_win.plot(kind='bar')
-plt.ylabel('Procent wygranych [%]')
+pos_win.plot(kind='pie', autopct='%1.1f%%', startangle=90, ylabel='')
 plt.title('Procent wygranych wg pozycji w tabeli')
 plt.show()
 
-# --- WYKRES SŁUPKOWY po wartości składu ---
 val_win = long_df.groupby('value_bin')['is_win'].mean() * 100
-val_win.plot(kind='bar')
-plt.ylabel('Procent wygranych [%]')
+val_win.plot(kind='pie', autopct='%1.1f%%', startangle=90, ylabel='')
 plt.title('Procent wygranych wg kwartylu wartości składu')
 plt.show()
 
@@ -182,7 +181,10 @@ plt.ylabel('Procent wygranych')
 plt.title('Wygrane % wg wartości składu i miejsca gry')
 plt.show()
 
-
+sns.barplot(x='pos_bin', y='is_win', data=long_df, hue='side')
+plt.ylabel('Procent wygranych')
+plt.title('Wygrane % wg pozycji w tabeli i miejsca gry')
+plt.show()
 
 
 

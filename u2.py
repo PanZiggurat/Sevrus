@@ -55,7 +55,67 @@ features.extend([col for col in df.columns if
                 col.startswith('away_club_manager_name_')
                 ])
 
+def compute_rolling_means(df, window=5):
+    df = df.copy()
+    # Najpierw sortujemy po sezonie i dacie meczu
+    df = df.sort_values(['season', 'data'])
+    # Do przechowania nowych kolumn
+    df['xg_home_hist_mean'] = np.nan
+    df['xg_away_hist_mean'] = np.nan
+    df['poss_home_hist_mean'] = np.nan
+    df['poss_away_hist_mean'] = np.nan
+
+    for season in df['season'].unique():
+        # Home team means
+        for team in pd.unique(df.loc[df['season'] == season, 'home_club_name']):
+            mask_home = (df['season'] == season) & (df['home_club_name'] == team)
+            matches_team = df[mask_home].sort_values('data')
+            for i, idx in enumerate(matches_team.index):
+                matches_before = matches_team.iloc[:i]
+                if len(matches_before) > 0:
+                    # Bierzemy mecze tylko z tego sezonu!!!
+                    n = min(window, len(matches_before))
+                    last_matches = matches_before.iloc[-n:]  # ostatnie
+                    # średnie dla HOME (team gra u siebie)
+                    df.at[idx, 'xg_home_hist_mean'] = last_matches['xg_home'].mean()
+                    df.at[idx, 'poss_home_hist_mean'] = last_matches['possession_home'].mean()
+                else:
+                    # Pierwszy mecz - weź średnią z 5 pierwszych (NIE licząc bieżącego)
+                    next_matches = matches_team.iloc[1:window+1]
+                    if len(next_matches) > 0:
+                        df.at[idx, 'xg_home_hist_mean'] = next_matches['xg_home'].mean()
+                        df.at[idx, 'poss_home_hist_mean'] = next_matches['possession_home'].mean()
+        
+        # Away team means
+        for team in pd.unique(df.loc[df['season'] == season, 'away_club_name']):
+            mask_away = (df['season'] == season) & (df['away_club_name'] == team)
+            matches_team = df[mask_away].sort_values('data')
+            for i, idx in enumerate(matches_team.index):
+                matches_before = matches_team.iloc[:i]
+                if len(matches_before) > 0:
+                    n = min(window, len(matches_before))
+                    last_matches = matches_before.iloc[-n:]  # ostatnie
+                    df.at[idx, 'xg_away_hist_mean'] = last_matches['xg_away'].mean()
+                    df.at[idx, 'poss_away_hist_mean'] = last_matches['possession_away'].mean()
+                else:
+                    # Pierwszy mecz - weź średnią z 5 pierwszych (NIE licząc bieżącego)
+                    next_matches = matches_team.iloc[1:window+1]
+                    if len(next_matches) > 0:
+                        df.at[idx, 'xg_away_hist_mean'] = next_matches['xg_away'].mean()
+                        df.at[idx, 'poss_away_hist_mean'] = next_matches['possession_away'].mean()
+    return df
+
+df['date'] = pd.to_datetime(df['data'])
+df = compute_rolling_means(df, window=5)
+df['xg_home'] = df['xg_home_hist_mean']
+df['xg_away'] = df['xg_away_hist_mean']
+df['possession_home'] = df['poss_home_hist_mean']
+df['possession_away'] = df['poss_away_hist_mean']
 # Dane wejściowe/wyjściowe
+import pickle
+with open("features.pkl", "wb") as f:
+    pickle.dump(features, f)
+
 X = df[features]
 y = df['result']
 y_home = df['home_club_goals']
@@ -135,6 +195,34 @@ from sklearn.metrics import mean_absolute_error
 print("MAE home goals (NN):", mean_absolute_error(y_home_test, pred_goals_home_nn))
 print("MAE away goals (NN):", mean_absolute_error(y_away_test, pred_goals_away_nn))
 
+
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, ConfusionMatrixDisplay
+
+# 1. Zamieniamy przewidziane gole na W/D/L (0/1/2)
+def goals_to_result(h, a):
+    if h > a:
+        return 2 # Home win
+    elif h == a:
+        return 1 # Draw
+    else:
+        return 0 # Away win
+
+# Konwersja przewidywanych goli na przewidywane wyniki meczów (0, 1, 2)
+pred_results_from_goals = [goals_to_result(h, a) for h, a in zip(pred_goals_home_nn, pred_goals_away_nn)]
+true_results = y_test.values  # Prawdziwe wyniki meczów (0, 1, 2) z danych testowych
+
+# 2. Accuracy & macierz pomyłek dla predykcji na podstawie goli
+acc_results_from_goals = accuracy_score(true_results, pred_results_from_goals)
+cm_goals = confusion_matrix(true_results, pred_results_from_goals)
+
+print("\n*** Wynik na podstawie przewidzianych goli (NN) ***")
+print("Accuracy (wynik z regresji goli):", round(acc_results_from_goals, 3))
+print(classification_report(true_results, pred_results_from_goals, target_names=["Away win", "Draw", "Home win"]))
+ConfusionMatrixDisplay(confusion_matrix=cm_goals, display_labels=["Away win", "Draw", "Home win"]).plot(cmap="Purples")
+plt.title("Macierz pomyłek – wynik z regresji goli")
+plt.show()
+
+
 print("\nPierwszy mecz testowy (NN):")
 print("True wynik: home_goals = {}, away_goals = {}".format(y_home_test.iloc[0], y_away_test.iloc[0]))
 print("Prognoza:   home_goals = {:.2f}, away_goals = {:.2f}".format(pred_goals_home_nn[0], pred_goals_away_nn[0]))
@@ -149,24 +237,27 @@ print("Home win: {:.2f}%".format(probs[2]*100))
 df['result_binary'] = df['home_club_goals'] > df['away_club_goals']
 df['result_binary'] = df['result_binary'].astype(int)
 
-y_binary = df['result_binary']
+y_binary = (df['result'] == 2).astype(int)
 
+# Podział
+y_train_binary, y_test_binary = y_binary.loc[X_train.index], y_binary.loc[X_test.index]
 
-X_train, X_test, y_train_binary, y_test_binary = train_test_split(X, y_binary, random_state=42, test_size=0.2)
+# Model binarny
 model_bin = keras.Sequential([
     layers.Input(shape=(X_train_scaled.shape[1],)),
-    layers.Dense(128, activation='relu'),
-    layers.Dropout(0.3),
     layers.Dense(64, activation='relu'),
-    layers.Dropout(0.2),
-    layers.Dense(1, activation='sigmoid')  # Zmiana tutaj!
+    layers.Dropout(0.3),
+    layers.Dense(32, activation='relu'),
+    layers.Dense(1, activation='sigmoid')
 ])
 
 model_bin.compile(
     optimizer='adam',
-    loss='binary_crossentropy',  # Zmiana tutaj!
+    loss='binary_crossentropy',
     metrics=['accuracy']
 )
+
+# Trening modelu binarnego
 model_bin.fit(X_train_scaled, y_train_binary, validation_split=0.1, epochs=25, batch_size=64)
 y_pred_prob_bin = model_bin.predict(X_test_scaled).flatten()
 y_pred_bin = (y_pred_prob_bin > 0.5).astype(int)
@@ -197,10 +288,13 @@ print(classification_report(y_test, y_pred_cls, target_names=["Away win", "Draw"
 # Model 2
 print("=== Model 2-klasowy (Win vs No Win) ===")
 
+import joblib
 
+joblib.dump(scaler, "scaler.pkl")
 
 
 
 model_cls.save("model_classifier.keras")          
 model_reg_home.save("model_regression_home.keras")
 model_reg_away.save("model_regression_away.keras")
+model_bin.save("model_regression_bin.keras")
